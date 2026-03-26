@@ -1,8 +1,5 @@
 # 🚗 e-Car Loan Pricing Optimization Analysis
-**Business Analytics & Predictive Modeling | Team Project | MIS380 | Feifei Li, Michelle Nguyen, Patrick Madla Sanchez **
-
-# 🚗 e-Car Loan Pricing Optimization Analysis
-**Business Analytics & Predictive Modeling | Collaborative Team Project**
+**Business Analytics & Predictive Modeling | Collaborative Team Project  | Feifei Li, Michelle Nguyen, Patrick Madla Sanchez**
 
 ## 🎯 Project Overview
 This project was a collaborative effort to analyze **208,085 loan applications** for e-Car, an online lender. [cite_start]Our team identified a systematic overpricing pattern and developed a scalable, data-driven pricing engine to capture an estimated **$30–$35 Million** in annual unrealized profit[cite: 88, 109].
