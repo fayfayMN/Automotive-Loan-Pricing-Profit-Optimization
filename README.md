@@ -45,7 +45,9 @@ We modeled the probability of loan acceptance ($P(Accept)$) as a function of the
 ### 3. Profit Optimization
 We balanced margin vs. volume using the formula:
 > [cite_start]**Expected Profit** = $P(Accept) \times (APR - \text{Cost of Funds}) \times \text{Loan Amount} \times (\text{Term}/12)$[cite: 51, 115].
-<img width="975" height="614" alt="image" src="https://github.com/user-attachments/assets/a2d9201f-62d4-4885-aea8-2b4a4a6e69b8" />
+
+<img width="975" height="644" alt="image" src="https://github.com/user-attachments/assets/ca163ef9-c3ed-4ec4-ae59-e3fa68e32340" />
+
 <img width="975" height="445" alt="image" src="https://github.com/user-attachments/assets/9fd26d78-71c9-4600-a2f5-8445b0f167b7" />
 
 ---
