@@ -1,0 +1,1091 @@
+---
+title: "All segments of Nomis"
+author: "Feifei Li"
+date: "2026-02-25"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+  always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## lIBRARY
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tinytex)
+library(readxl)
+library(binom)
+library(car)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+```
+# Data prepartion
+```{r}
+# Load and explore the data
+data <- read_excel("C:/Users/faith/OneDrive/Documents/Metro/MIS 380/Jin Simon/Nomis B project/NomisB_e-Car_Data.xlsx", sheet = 2)
+str(data)
+
+```
+```{r}
+# Clean and prepare data
+
+df <- data %>%
+  rename(
+    car_type = `Car  Type`,
+    partner_bin = `Partner Bin`,
+    competition_rate = `Competition rate`,
+    approve_date = `Approve Date`,
+    previous_rate = `Previous Rate`,
+    cost_of_funds = `Cost of Funds`
+  ) %>%
+  # Drop NAs for essential columns
+  drop_na(Tier, FICO, Term, Amount, Outcome, Rate, cost_of_funds) %>%
+  mutate(
+    Tier = as.factor(Tier),
+    car_type = as.factor(car_type),
+    partner_bin = as.factor(partner_bin),
+    Outcome = as.factor(Outcome),
+    # Calculate profit margin
+    margin = Rate - cost_of_funds
+  )
+
+str(df)
+head(df)
+
+```
+Interpretation: Clean data is the foundation. We keep 208,085 approved applications. The Outcome is correctly coded as a factor with levels 0 (reject) and 1 (accept).
+
+# Data explore( not for report)
+
+```{r}
+# Checking Data Values,Prints unique values and test segment size.(NO need for report)
+cat("Unique car_type values:", paste(unique(df$car_type), collapse = ", "), "\n")
+cat("Unique Term values:", paste(unique(df$Term), collapse = ", "), "\n")
+cat("FICO range:", min(df$FICO), "-", max(df$FICO), "\n")
+
+# Test one segment manually to see if it works
+test_seg <- df %>%
+  filter(FICO >= 720, FICO <= 780,
+         car_type == "N",
+         Term == 60)
+
+cat("\nTest segment size (720-780, N, 60mo):", nrow(test_seg), "\n")
+```
+# visualization of dataset to find out some infomation
+```{r}
+# Shows FICO distribution for the whole dataset with vertical lines at the teaching segment bounds.
+library(ggplot2)
+
+# Assuming your data is in df
+ggplot(df, aes(x = FICO)) +
+  geom_histogram(binwidth = 10, fill = "steelblue", color = "black") +
+  geom_vline(xintercept = c(684, 712), color = "red", linetype = "dashed", size = 1) +
+  labs(title = "FICO Score Distribution",
+       subtitle = "Red lines show the teaching note segment (684-712)",
+       x = "FICO Score", y = "Count") +
+  theme_minimal()
+
+```
+
+
+## Combined EDA Plots (lines ~92–149)
+```{r}
+library(patchwork)  # For combining plots
+# Six histograms/bar charts for FICO, APR, Amount, Term, Car Type, Outcome
+
+# 1. FICO plot
+p1 <- ggplot(df, aes(x = FICO)) +
+  geom_histogram(binwidth = 10, fill = "steelblue", color = "black") +
+  geom_vline(xintercept = c(684, 712), color = "red", linetype = "dashed", size = 1) +
+  labs(title = "FICO Score Distribution", 
+       subtitle = "Red lines = Teaching segment",
+       x = "FICO Score", y = "Count") +
+  theme_minimal()
+
+# 2. APR plot
+p2 <- ggplot(df, aes(x = Rate)) +
+  geom_histogram(binwidth = 0.5, fill = "lightgreen", color = "black") +
+  labs(title = "APR Distribution", x = "APR (%)", y = "Count") +
+  theme_minimal()
+
+# 3. Amount plot
+p3 <- ggplot(df, aes(x = Amount/1000)) +
+  geom_histogram(binwidth = 2, fill = "coral", color = "black") +
+  labs(title = "Loan Amount Distribution", x = "Amount ($ thousands)", y = "Count") +
+  theme_minimal()
+
+# 4. Term plot
+p4 <- ggplot(df, aes(x = as.factor(Term))) +
+  geom_bar(fill = "purple") +
+  labs(title = "Loan Term Distribution", x = "Term (months)", y = "Count") +
+  theme_minimal()
+
+# 5. Car Type plot
+p5 <- ggplot(df, aes(x = car_type)) +
+  geom_bar(fill = c("darkgreen", "orange", "blue")) +
+  scale_x_discrete(labels = c("New", "Refinance", "Used")) +
+  labs(title = "Car Type Distribution", x = "Car Type", y = "Count") +
+  theme_minimal()
+
+# 6. Outcome plot
+p6 <- ggplot(df, aes(x = Outcome)) +
+  geom_bar(fill = c("red", "green")) +
+  scale_x_discrete(labels = c("Rejected", "Accepted")) +
+  labs(title = "Loan Outcome Distribution", x = "Outcome", y = "Count") +
+  theme_minimal()
+
+# Combine plots
+library(patchwork)
+(p1 | p2 | p3) / (p4 | p5 | p6)
+```
+```{r}
+# Create a summary table of key variables
+summary_stats <- data.frame(
+  Variable = c("FICO", "APR (%)", "Amount ($)", "Term (months)"),
+  Min = c(min(df$FICO), min(df$Rate), min(df$Amount), min(df$Term)),
+  Q1 = c(quantile(df$FICO, 0.25), quantile(df$Rate, 0.25), 
+         quantile(df$Amount, 0.25), quantile(df$Term, 0.25)),
+  Median = c(median(df$FICO), median(df$Rate), median(df$Amount), median(df$Term)),
+  Mean = c(mean(df$FICO), mean(df$Rate), mean(df$Amount), mean(df$Term)),
+  Q3 = c(quantile(df$FICO, 0.75), quantile(df$Rate, 0.75), 
+         quantile(df$Amount, 0.75), quantile(df$Term, 0.75)),
+  Max = c(max(df$FICO), max(df$Rate), max(df$Amount), max(df$Term))
+)
+
+knitr::kable(summary_stats, caption = "Summary Statistics of Key Variables", digits = 2)
+```
+
+```{r}
+#Summary Statistics Tables (lines ~151–189) These provide an overall picture.
+# Summary of categorical variables
+cat_summary <- data.frame(
+  Variable = c("Car Type", "", "", "Outcome", ""),
+  Category = c("New", "Refinance", "Used", "Rejected (0)", "Accepted (1)"),
+  Count = c(sum(df$car_type == "N"), sum(df$car_type == "R"), sum(df$car_type == "U"),
+            sum(df$Outcome == 0), sum(df$Outcome == 1)),
+  Percentage = c(
+    round(sum(df$car_type == "N")/nrow(df)*100, 1),
+    round(sum(df$car_type == "R")/nrow(df)*100, 1),
+    round(sum(df$car_type == "U")/nrow(df)*100, 1),
+    round(sum(df$Outcome == 0)/nrow(df)*100, 1),
+    round(sum(df$Outcome == 1)/nrow(df)*100, 1)
+  )
+)
+
+knitr::kable(cat_summary, caption = "Categorical Variables Summary")
+```
+
+```{r}
+# Quick correlation check (Computes and plots correlation matrix for numeric variables.)
+numeric_df <- df %>% select(FICO, Term, Amount, Rate, cost_of_funds)
+cor_matrix <- cor(numeric_df, use = "complete.obs")
+print(round(cor_matrix, 2))
+
+# Visualize
+library(corrplot)
+corrplot(cor_matrix, method = "number", type = "upper")
+```
+#APR, Term, and FICO Group Analyses 
+
+```{r}
+## Three grouped summaries (APR buckets, Term groups, FICO groups) on the full dataset.
+# 1. APR analysis
+df %>%
+  group_by(APR_Bucket = cut(Rate, breaks = seq(2, 14, by = 0.5))) %>%
+  summarise(
+    count = n(),
+    accept_rate = mean(as.numeric(as.character(Outcome))),
+    .groups = 'drop'
+  ) %>%
+  filter(count > 100) %>%
+  arrange(desc(accept_rate)) %>%
+  head(11)  # Top 11 as in sample
+
+# 2. Term analysis 
+df %>%
+  group_by(Term) %>%
+  summarise(
+    count = n(),
+    accept_rate = mean(as.numeric(as.character(Outcome))),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(count))
+
+# 3. FICO analysis 
+df %>%
+  mutate(FICO_Group = case_when(
+    FICO < 620 ~ "Bad",
+    FICO < 680 ~ "Fair",
+    FICO < 720 ~ "Good",
+    FICO < 760 ~ "Very Good",
+    TRUE ~ "Excellent"
+  )) %>%
+  group_by(FICO_Group) %>%
+  summarise(
+    count = n(),
+    accept_rate = mean(as.numeric(as.character(Outcome))),
+    avg_rate = mean(Rate),
+    .groups = 'drop'
+  )
+  
+```
+
+## Teaching Note Segment Definition (lines ~230–241) – START OF FOCUS AREA
+
+```{r}
+# ----------------------------------------------------
+# 2. Define the teaching note segment
+# ----------------------------------------------------
+segment <- df %>%
+  filter(
+    car_type == 'U',               # Used cars
+    Term == 60,                     # 60 months
+    FICO >= 684, FICO <= 712,       # Exact teaching note range
+    Amount >= 17800, Amount <= 25000 # $17.8K to $25K
+  )
+
+cat("Teaching segment size:", nrow(segment), "loans\n")
+cat("This is", round(nrow(segment)/nrow(df)*100, 2), "% of total data\n")
+
+```
+Interpretation: This matches the teaching note’s example segment. It ensures we analyse a homogeneous group where price is the main driver of acceptance. Segment size here is 1,540 loans (the note’s Appendix 5 shows 1,540 observations – perfect match).
+
+# Exploratory Visualisation – Histogram of APRs
+
+```{r}
+# ----------------------------------------------------
+# 3. Histogram of APRs quoted by e-Car in this segment
+# ----------------------------------------------------
+p_hist <- ggplot(segment, aes(x = Rate)) +
+  geom_histogram(binwidth = 0.25, fill = "steelblue", color = "black") +
+  labs(
+    title = "e-Car's APR Quotes in Teaching Segment",
+    subtitle = "FICO 684-712, Used, 60mo, $17.8K-$25K",
+    x = "APR (%)", y = "Frequency"
+  ) +
+  theme_minimal()
+print(p_hist)
+```
+What it does: Shows the distribution of APRs that e‑Car actually quoted in this segment.
+
+Interpretation: Most quotes are concentrated between 6.0% and 6.5% – this is the current pricing practice. The histogram directly echoes Appendix 1 of the teaching note.
+
+##Binned Acceptance Rates (Demand Curve)
+
+```{r}
+# ----------------------------------------------------
+# 4. Binned acceptance rates with error bars
+# ----------------------------------------------------
+segment_binned <- segment %>%
+  mutate(APR_bin = cut(Rate, breaks = seq(3, 9, by = 0.5))) %>%
+  group_by(APR_bin) %>%
+  summarise(
+    n = n(),
+    accept_rate = mean(as.numeric(as.character(Outcome))),
+    se = sqrt(accept_rate * (1 - accept_rate) / n),
+    .groups = 'drop'
+  ) %>%
+  filter(n >= 20)   # keep bins with enough observations
+
+p_binned <- ggplot(segment_binned, aes(x = APR_bin, y = accept_rate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = accept_rate - se, ymax = accept_rate + se), width = 0.2) +
+  labs(
+    title = "Observed Acceptance Rate by APR (Binned)",
+    x = "APR Bin", y = "Acceptance Rate"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(p_binned)
+```
+What it does: Groups APRs into 0.5‑point bins, calculates the observed acceptance rate and standard error for each bin.
+
+Interpretation: The downward‑sloping points (with error bars) visualise the trade‑off: higher APRs → lower acceptance. This is the empirical demand curve (similar to Appendix 2). It hints that the optimal price may be lower than current practice.
+
+# Simple MOdel with Rate only
+```{r}
+# ----------------------------------------------------
+# 5. Logistic regression (simple model with Rate only)
+# ----------------------------------------------------
+model1 <- glm(Outcome ~ Rate, 
+              family = binomial(link = "logit"),
+              data = segment)
+
+summary(model1)
+
+# Extract coefficients
+intercept <- coef(model1)[1]
+rate_coef <- coef(model1)[2]
+
+cat("\nLogistic model: P(accept) = 1 / (1 + exp(-(", intercept, "+", rate_coef, "* APR)))\n")
+
+```
+Interpretation:
+
+The negative coefficient for Rate confirms that higher APRs significantly reduce the probability of acceptance.
+
+The numbers exactly match Appendix 5 of the teaching note (6.36, -1.13). This validates that your analysis reproduces the note’s core result.
+
+The odds ratio exp(-1.1278) ≈ 0.324 – each 1% increase in APR multiplies the odds of acceptance by 0.324 (a 67.6% drop).
+
+##  odd ratio and pertenage change
+#The odds ratio is also used to compare sensitivity across segments – a larger magnitude (more negative coefficient) means customers are more price‑sensitive.(Include a short table or sentence:Price Sensitivity: The logistic model estimates that each 1 percentage point increase in APR reduces the odds of acceptance by 67.6% (odds ratio = 0.324). This confirms that customers are highly responsive to price, and small adjustments can have large impacts on acceptance.This makes the results tangible and directly supports the recommendation to lower APRs.)
+```{r}
+odds_ratio <- exp(coef(model1)["Rate"])
+odds_ratio
+# percentage change
+#Formula: Percentage Change = (Odds Ratio - 1) × 100%
+percent_change <- (odds_ratio - 1) * 100
+cat("Each 1% increase in APR reduces the odds of acceptance by", 
+    abs(round(percent_change, 1)), "%\n")
+```
+For a 1 percentage point increase in APR, the odds of acceptance are multiplied by 0.234. In other words, the odds decrease by about 67.6% (since 1−0.234=0.676).
+
+
+##Logistic Curve Plot
+
+```{r}
+# ------------------------------------------------------------
+# logistic regression plot
+# ------------------------------------------------------------
+
+# Predict probabilities for a smooth curve
+aprs <- seq(min(segment$Rate), max(segment$Rate), length.out = 200)
+pred_data <- data.frame(Rate = aprs)
+pred_data$prob <- predict(model1, newdata = pred_data, type = "response")
+
+# Base plot
+p <- ggplot() +
+  # Raw data points (jittered to show density)
+  geom_jitter(data = segment, 
+              aes(x = Rate, y = as.numeric(as.character(Outcome))),
+              height = 0.02, width = 0, alpha = 0.2, size = 0.8, color = "gray30") +
+  # Logistic regression curve
+  geom_line(data = pred_data, aes(x = Rate, y = prob), 
+            color = "red", size = 1.2) +
+  # Optional confidence band (if you want to add)
+  # You can add a confidence interval using predict(..., se.fit = TRUE)
+  # For simplicity, we skip it here, but can be added if desired.
+  labs(
+    title = "Logistic Regression: Probability of Acceptance",
+    subtitle = paste("Segment: FICO 684–712, Used, 60mo, $17.8K–$25K (n =", nrow(segment), ")"),
+    x = "APR (%)", y = "Probability of Acceptance"
+  ) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2)) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "gray40"),
+    panel.grid.minor = element_blank()
+  )
+
+print(p)
+
+```
+What it does: Plots the raw binary data (jittered) and overlays the fitted S‑curve from the logistic model.
+
+Interpretation: The curve stays between 0 and 1, respecting probability bounds. It clearly shows how acceptance probability declines as APR rises – a key visual for the “Eureka!” moment.
+
+#Expected Profit & Optimal APR
+
+```{r}
+# ----------------------------------------------------
+# 7. Expected profit per quote and optimal APR
+# ----------------------------------------------------
+avg_cost <- mean(segment$cost_of_funds, na.rm = TRUE)
+avg_amount <- mean(segment$Amount, na.rm = TRUE)
+term_years <- 5   # 60 months
+
+# Use a grid with 0.25% steps to include 4.75% if it's the optimum
+aprs_grid <- seq(3, 8, by = 0.25)
+pred_probs_grid <- predict(model1, newdata = data.frame(Rate = aprs_grid), 
+                           type = "response")
+
+profit_df <- data.frame(
+  APR = aprs_grid,
+  prob = pred_probs_grid,
+  profit_if_accept = (aprs_grid - avg_cost) * avg_amount/100 * term_years,
+  expected_profit = pred_probs_grid * (aprs_grid - avg_cost) * avg_amount/100 * term_years
+)
+
+# Find optimal APR
+optimal <- profit_df[which.max(profit_df$expected_profit), ]
+cat("\nOptimal APR:", optimal$APR, "%\n")
+cat("Max expected profit per quote: $", round(optimal$expected_profit, 2), "\n")
+
+# Current practice
+current_apr <- mean(segment$Rate, na.rm = TRUE)
+current_prob <- mean(as.numeric(as.character(segment$Outcome)), na.rm = TRUE) # current accept rate
+current_profit <- current_prob * (current_apr - avg_cost) * avg_amount/100 * term_years
+
+cat("\nCurrent average APR:", round(current_apr, 2), "%\n")
+cat("Current acceptance rate:", round(current_prob * 100, 1), "%\n")
+cat("Current expected profit per quote: $", round(current_profit, 2), "\n")
+cat("\nImprovement per quote: $", round(optimal$expected_profit - current_profit, 2),
+    "(", round((optimal$expected_profit/current_profit - 1)*100, 1), "%)\n")
+# Acceptance rate for a specific APR
+predict(model1, newdata = data.frame(Rate = 4.75), type = "response")
+    
+```
+What it does: Computes the expected profit per quote for each possible APR, using the model’s predicted probabilities and real business inputs (cost of funds, average loan amount).
+
+##Interpretation:
+The optimal APR is the one that maximises expected profit, balancing higher margin vs. lower acceptance.
+The optimal APR is 4.5% (or 4.75% depending on the grid). This is the quantitative recommendation to e‑Car.
+
+
+
+##
+
+```{r}
+# ----------------------------------------------------
+# 8. Expected profit plot
+# ----------------------------------------------------
+
+ggplot(profit_df, aes(x = APR, y = expected_profit)) +
+  geom_line(size = 1, color = "darkgreen") +
+  geom_point(data = optimal, aes(x = APR, y = expected_profit), 
+             color = "red", size = 3) +
+  geom_vline(xintercept = optimal$APR, linetype = "dashed", color = "red") +
+  geom_vline(xintercept = current_apr, linetype = "dotted", color = "blue") +
+  labs(
+    title = "Expected Profit per Quote vs APR",
+    x = "APR (%)", y = "Expected Profit ($)"
+  ) +
+  theme_minimal()
+```
+## Compute the required quantities for any APR
+
+```{r}
+# Example using the segment's actual averages
+loan_amount <- mean(segment$Amount)      # e.g., 21847
+term_years <- 5                           # 60 months
+cost_rate <- mean(segment$cost_of_funds)  # e.g., 1.84%
+
+aprs <- c(6.45, 4.75)   # in percent
+probs <- predict(model1, newdata = data.frame(Rate = aprs), type = "response")
+
+revenue <- (aprs / 100) * loan_amount * term_years
+cost    <- (cost_rate / 100) * loan_amount * term_years
+net     <- revenue - cost
+expected <- net * probs
+
+result <- data.frame(
+  APR = aprs,
+  Revenue = round(revenue),
+  Cost = round(cost),
+  Net = round(net),
+  P_Accept = round(probs, 2),
+  Exp_Profit = round(expected, 2)
+)
+print(result)
+```
+# Generate the logistic equation text
+```{r}
+intercept <- coef(model1)[1]
+slope <- coef(model1)[2]
+cat("Prob(accept) = exp(", round(intercept,2), " + ", round(slope,2), " * APR) / (1 + exp(", round(intercept,2), " + ", round(slope,2), " * APR))", sep="")
+```
+
+
+
+
+## Below This graph visually reinforces the teaching note’s point: changing customer characteristics (or market conditions) alters both the baseline acceptance and price sensitivity, which is why personalised pricing matters.
+
+```{r}
+
+# Define APR range
+aprs <- seq(4, 10, length.out = 200)
+
+# Create data for varying intercept (a) with fixed slope (b)
+a_values <- c(8, 9, 10)   # increasing baseline attractiveness
+b_fixed <- -1.2            # fixed slope (negative)
+
+df_a <- expand.grid(APR = aprs, a = a_values)
+df_a$b <- b_fixed
+df_a$prob <- 1 / (1 + exp(-(df_a$a + df_a$b * df_a$APR)))
+df_a$type <- paste0("a = ", df_a$a)
+
+# Create data for varying slope (b) with fixed intercept (a_fixed)
+b_values <- c(-1.5, -1.2, -0.9)   # decreasing magnitude (less negative)
+a_fixed <- 9
+
+df_b <- expand.grid(APR = aprs, b = b_values)
+df_b$a <- a_fixed
+df_b$prob <- 1 / (1 + exp(-(df_b$a + df_b$b * df_b$APR)))
+df_b$type <- paste0("b = ", df_b$b)
+
+# Combine both datasets
+df_plot <- rbind(
+  cbind(df_a, set = "Increasing constant (a)"),
+  cbind(df_b, set = "Decreasing magnitude of b")
+)
+
+# Plot
+ggplot(df_plot, aes(x = APR, y = prob, color = type, linetype = set)) +
+  geom_line(size = 1.2) +
+  labs(
+    title = "Logistic Regression: Model Flexibility",
+    x = "Quoted APR (%)",
+    y = "Probability of Acceptance",
+    color = "Parameter",
+    linetype = "Effect"
+  ) +
+  scale_x_continuous(breaks = 4:10) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2)) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    plot.title = element_text(face = "bold")
+  ) +
+  guides(color = guide_legend(nrow = 2))
+```
+# Explanation of the code:
+
+APR range – set from 4% to 10% (adjust as needed).
+
+Varying intercept (a) – keep slope constant (b = -1.2) and try three increasing values of a. Higher a shifts the curve to the right.
+
+Varying slope (b) – keep intercept constant (a = 9) and try three values of b that are less negative (e.g., -1.5 → -0.9). A less negative slope makes the curve flatter (customers less sensitive) and also shifts it right because the same APR yields higher probability.
+
+
+
+
+```{r}
+# ----------------------------------------------------
+# 9. Optional: ROC curve (model validation)
+# ----------------------------------------------------
+library(ROCR)
+pred_prob <- predict(model1, type = "response")
+pred <- prediction(pred_prob, segment$Outcome)
+perf <- performance(pred, "tpr", "fpr")
+auc <- performance(pred, "auc")@y.values[[1]]
+
+plot(perf, col = "blue", lwd = 2,
+     main = paste("ROC Curve (AUC =", round(auc, 3), ")"))
+abline(a = 0, b = 1, lty = 2, col = "gray")
+grid()
+
+cat("\nAUC:", round(auc, 3), "\n")
+
+```
+What it does: Plots the ROC curve and calculates the Area Under the Curve (AUC).
+
+Interpretation:  Validates model performance (AUC > 0.8 is strong). – the model has excellent discriminatory power. This gives confidence that the predicted probabilities are reliable.
+
+
+#optimal APR
+
+```{r}
+# Calculate optimal APR (like in teaching note)
+aprs <- seq(3, 8, by = 0.25)
+
+results <- data.frame(
+  APR = aprs,
+  prob_accept = predict(model1, 
+                        newdata = data.frame(Rate = aprs),
+                        type = "response")
+)
+
+# Add profit calculation (using actual segment averages, not assumptions)
+avg_cost <- mean(segment$cost_of_funds, na.rm = TRUE)
+avg_amount <- mean(segment$Amount, na.rm = TRUE)
+
+results <- results %>%
+  mutate(
+    profit_if_accept = (APR - avg_cost) * avg_amount/100 * (60/12),
+    expected_profit = prob_accept * profit_if_accept
+  )
+# 4. Find best
+best <- results[which.max(results$expected_profit), ]
+best_apr <- best$APR
+best_profit <- best$expected_profit
+best_prob <- best$prob_accept
+
+# 5. Compare to current
+current_apr <- mean(segment$Rate, na.rm = TRUE)
+current_prob <- mean(as.numeric(as.character(segment$Outcome)), na.rm = TRUE)
+current_profit <- current_prob * (current_apr - avg_cost) * avg_amount/100 * (60/12)
+
+improvement <- (best_profit - current_profit) / current_profit * 100
+
+print(paste("Optimal APR:", best_apr, "%"))
+print(paste("Current avg APR:", current_apr, "%"))
+
+```
+# visualization on the profit plot
+```{r}
+plot(results$APR, results$expected_profit, 
+     type = "l", lwd = 3, col = "blue",
+     xlab = "APR (%)", 
+     ylab = "Expected Profit per Quote ($)",
+     main = "Optimal APR Analysis ",
+     ylim = c(0, max(results$expected_profit) * 1.1))
+
+abline(v = best_apr, col = "green", lwd = 2, lty = 2)
+abline(v = current_apr, col = "red", lwd = 2, lty = 2)
+points(best_apr, best_profit, col = "green", pch = 19, cex = 1.5)
+points(current_apr, current_profit, col = "red", pch = 19, cex = 1.5)
+
+legend("topright", 
+       legend = c("Expected Profit per Quote",
+                  paste("Optimal:", round(best_apr, 2), "%"),
+                  paste("Current:", round(current_apr, 2), "%")),
+       col = c("blue", "green", "red"), 
+       lty = c(1, 2, 2), 
+       lwd = c(3, 2, 2),
+       pch = c(NA, 19, 19),
+       pt.cex = 1.5,
+       bg = "white")
+grid()
+```
+###Comparison Table and Summary(Creates comparison and prints results for the broader segment.)
+```{r}
+# Create comparison table for presentation
+comparison <- data.frame(
+  Metric = c("APR (%)", "Acceptance Rate (%)", "Expected Profit per Loan ($)"),
+  Current = c(round(current_apr, 2), 
+              round(current_prob * 100, 1),
+              paste("$", format(round(current_profit, 2), big.mark = ","))),
+  Optimal = c(round(best_apr, 2), 
+              round(best$prob_accept * 100, 1),
+              paste("$", format(round(best_profit, 2), big.mark = ","))),
+  Improvement = c(paste(round(best_apr - current_apr, 2), "pts"),
+                  paste("+", round((best$prob_accept - current_prob) * 100, 1), "pts"),
+                  paste("+$", format(round(best_profit - current_profit, 2), big.mark = ",")))
+)
+
+print(comparison)
+
+# You could also calculate total segment opportunity
+total_opportunity <- (best_profit - current_profit) * nrow(segment)
+cat("\nTotal opportunity for this segment: $", 
+    format(round(total_opportunity), big.mark = ","), "\n")
+```
+# Results
+
+```{r}
+#  Print results
+cat("\n", rep("=", 50), "\n", sep = "")
+cat(" SEGMENT RESULTS\n")
+cat(rep("=", 50), "\n\n", sep = "")
+
+cat(" Segment size:", nrow(segment), "loans\n")
+cat(" Avg loan amount: $", format(round(avg_amount), big.mark = ","), "\n")
+cat(" Avg cost of funds:", round(avg_cost, 2), "%\n\n")
+
+cat(" CURRENT PRACTICE:\n")
+cat("   - Average APR:", round(current_apr, 2), "%\n")
+cat("   - Acceptance rate:", round(current_prob * 100, 1), "%\n")
+cat("   - Profit if accepted: $", format(round((current_apr - avg_cost) * avg_amount/100 * 5), big.mark = ","), "\n")
+cat("   - Expected profit per QUOTE: $", format(round(current_profit, 2), big.mark = ","), "\n\n")
+
+cat(" OPTIMAL PRICING:\n")
+cat("   - Recommended APR:", round(best_apr, 2), "%\n")
+cat("   - Projected acceptance rate:", round(best_prob * 100, 1), "%\n")
+cat("   - Profit if accepted: $", format(round((best_apr - avg_cost) * avg_amount/100 * 5), big.mark = ","), "\n")
+cat("   - Expected profit per QUOTE: $", format(round(best_profit, 2), big.mark = ","), "\n\n")
+
+cat(" IMPROVEMENT:\n")
+cat("   - Per quote: $", format(round(best_profit - current_profit, 2), big.mark = ","), "\n")
+cat("   - Percent: ", round((best_profit - current_profit) / current_profit * 100, 1), "%\n")
+cat("   - Segment total: $", format(round((best_profit - current_profit) * nrow(segment)), big.mark = ","), "\n")
+```
+
+
+# example for simple model(just play around the number , not necessary)
+```{r}
+# ====================================================
+# OPTIMAL APR CALCULATION - SIMPLE MODEL (RATE ONLY)
+# Using actual model coefficients from segment
+# ====================================================
+
+# Use the actual model and segment data
+intercept <- coef(model1)[1]      # Should be ~6.36
+rate_coef <- coef(model1)[2]      # Should be ~ -1.13
+
+# Segment averages from the actual data
+avg_cost <- mean(segment$cost_of_funds, na.rm = TRUE)
+avg_amount <- mean(segment$Amount, na.rm = TRUE)
+term_years <- 5  # 60 months = 5 years
+segment_size <- nrow(segment)  # Should be 1540
+
+# Test APRs from 3% to 8% in 0.25% increments
+aprs <- seq(3, 8, by = 0.25)
+
+# Calculate probability of acceptance for each APR
+linear_predictor <- intercept + rate_coef * aprs
+prob_accept <- 1 / (1 + exp(-linear_predictor))
+
+# Calculate profit if customer accepts
+profit_if_accept <- (aprs - avg_cost) * avg_amount/100 * term_years
+
+# Calculate expected profit per quote
+expected_profit <- prob_accept * profit_if_accept
+
+# Create results dataframe
+results <- data.frame(
+  APR = aprs,
+  Probability = round(prob_accept, 3),
+  Profit_if_Accept = round(profit_if_accept, 0),
+  Expected_Profit = round(expected_profit, 0)
+)
+
+# Display all results
+print("=== EXPECTED PROFIT BY APR ===")
+print(results)
+
+# Find optimal APR
+best_idx <- which.max(expected_profit)
+best_apr <- aprs[best_idx]
+best_prob <- prob_accept[best_idx]
+best_profit <- expected_profit[best_idx]
+
+# Current segment averages - DYNAMIC from segment
+current_apr <- mean(segment$Rate, na.rm = TRUE)
+current_prob <- mean(as.numeric(as.character(segment$Outcome)), na.rm = TRUE)
+current_profit <- current_prob * (current_apr - avg_cost) * avg_amount/100 * term_years
+
+# Print results
+cat("\n", rep("=", 50), "\n", sep = "")
+cat("           OPTIMAL APR ANALYSIS\n")
+cat(rep("=", 50), "\n\n", sep = "")
+
+cat(" Segment Information:\n")
+cat("   Average Loan Amount: $", format(round(avg_amount), big.mark = ","), "\n")
+cat("   Average Cost of Funds:", round(avg_cost, 2), "%\n")
+cat("   Loan Term: 60 months (5 years)\n")
+cat("   Segment Size:", format(segment_size, big.mark = ","), "loans\n\n")
+
+cat(" CURRENT PRACTICE:\n")
+cat("   APR:", round(current_apr, 2), "%\n")
+cat("   Acceptance Rate:", round(current_prob * 100, 1), "%\n")
+cat("   Expected Profit per Quote: $", format(round(current_profit), big.mark = ","), "\n\n")
+
+cat(" OPTIMAL PRICING:\n")
+cat("   Recommended APR:", best_apr, "%\n")
+cat("   Projected Acceptance Rate:", round(best_prob * 100, 1), "%\n")
+cat("   Expected Profit per Quote: $", format(round(best_profit), big.mark = ","), "\n\n")
+
+cat(" IMPROVEMENT:\n")
+cat("   APR Change:", round(best_apr - current_apr, 2), "percentage points\n")
+cat("   Acceptance Rate Change: +", round((best_prob - current_prob) * 100, 1), "percentage points\n")
+cat("   Profit Increase: $", format(round(best_profit - current_profit), big.mark = ","), "per quote\n")
+cat("   Percent Improvement:", round((best_profit/current_profit - 1) * 100, 1), "%\n\n")
+
+cat(" Total Segment Opportunity:\n")
+cat("   Segment Size:", format(segment_size, big.mark = ","), "loans\n")
+cat("   Total Additional Profit: $", 
+    format(round((best_profit - current_profit) * segment_size), big.mark = ","), "\n")
+```
+
+```{r}
+
+# Create comparison table
+comparison <- data.frame(
+  Metric = c("APR (%)", 
+             "Acceptance Rate (%)", 
+             "Profit if Accepted ($)",
+             "Expected Profit per Quote ($)",
+             "Segment Total Profit ($)"),
+  Current = c(round(current_apr, 2),
+              round(current_prob * 100, 1),
+              format(round((current_apr - avg_cost) * avg_amount/100 * 5), big.mark = ","),
+              paste("$", format(round(current_profit), big.mark = ",")),
+              paste("$", format(round(current_profit * 2332), big.mark = ","))),
+  Optimal = c(round(best_apr, 2),
+              round(best_prob * 100, 1),
+              format(round((best_apr - avg_cost) * avg_amount/100 * 5), big.mark = ","),
+              paste("$", format(round(best_profit), big.mark = ",")),
+              paste("$", format(round(best_profit * 2332), big.mark = ","))),
+  Change = c(paste(round(best_apr - current_apr, 2), "pts"),
+             paste("+", round((best_prob - current_prob) * 100, 1), "pts"),
+             paste("$", format(round((best_apr - current_apr) * avg_amount/100 * 5), big.mark = ",")),
+             paste("+$", format(round(best_profit - current_profit), big.mark = ",")),
+             paste("+$", format(round((best_profit - current_profit) * 2332), big.mark = ",")))
+)
+
+library(knitr)
+kable(comparison, caption = "Segment: Current vs Optimal Pricing", format = "pipe")
+```
+
+
+```{r}
+# ====================================================
+# QUICK SCAN OF OTHER SEGMENTS 
+# ====================================================
+
+quick_check <- function(data, fico_min, fico_max, car_type_val, term_val, 
+                        amount_min = NULL, amount_max = NULL, segment_name = NULL) {
+  
+  # Filter the data
+  seg <- data %>%
+    filter(FICO >= fico_min, FICO <= fico_max,
+           car_type == car_type_val,
+           Term == term_val)
+  
+  # Apply amount filters if provided
+  if (!is.null(amount_min) & !is.null(amount_max)) {
+    seg <- seg %>% filter(Amount >= amount_min, Amount <= amount_max)
+  }
+  
+  # Need at least 100 observations for reliable estimates
+  if (nrow(seg) < 100) return(NULL)
+  
+  # Fit logistic model
+  m <- glm(Outcome ~ Rate, data = seg, family = binomial)
+  
+  # Test APRs with finer grid (0.25% steps to match main analysis)
+  aprs <- seq(3, 12, by = 0.25)
+  probs <- predict(m, newdata = data.frame(Rate = aprs), type = "response")
+  
+  # Get segment-specific averages
+  avg_cost <- mean(seg$cost_of_funds, na.rm = TRUE)
+  avg_amount <- mean(seg$Amount, na.rm = TRUE)
+  term_years <- seg$Term[1] / 12  # Convert months to years
+  
+  # Calculate profits
+  profit_if_accept <- (aprs - avg_cost) * avg_amount / 100 * term_years
+  expected_profit <- probs * profit_if_accept
+  
+  # Find optimal
+  best_idx <- which.max(expected_profit)
+  optimal_apr <- aprs[best_idx]
+  optimal_prob <- probs[best_idx]
+  optimal_profit <- expected_profit[best_idx]
+  
+  # Current segment metrics
+  current_apr <- mean(seg$Rate, na.rm = TRUE)
+  current_prob <- mean(as.numeric(as.character(seg$Outcome)), na.rm = TRUE)
+  current_profit <- current_prob * (current_apr - avg_cost) * avg_amount / 100 * term_years
+  
+  # Return results
+  data.frame(
+    Segment = ifelse(is.null(segment_name),
+                     paste(fico_min, "-", fico_max, car_type_val, term_val, "mo"),
+                     segment_name),
+    N = nrow(seg),
+    Current_APR = round(current_apr, 2),
+    Optimal_APR = round(optimal_apr, 2),
+    APR_Gap = round(optimal_apr - current_apr, 2),
+    Current_Profit = paste0("$", format(round(current_profit), big.mark = ",")),
+    Optimal_Profit = paste0("$", format(round(optimal_profit), big.mark = ",")),
+    Improvement = paste0(round((optimal_profit / current_profit - 1) * 100, 1), "%"),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Run the scan on selected segments
+segment_results <- bind_rows(
+  quick_check(df, 684, 712, "U", 60, 17800, 25000, "Teaching Segment"),
+  quick_check(df, 712, 780, "N", 60, 20000, 40000, "Prime New Cars"),
+  quick_check(df, 620, 680, "U", 48, 10000, 20000, "Near-prime Used"),
+  quick_check(df, 580, 620, "U", 72, 15000, 25000, "Subprime Used"),
+  quick_check(df, 700, 750, "R", 60, 15000, 30000, "Prime Refinance"),
+  quick_check(df, 760, 850, "N", 60, 30000, 60000, "Super-prime New"),
+  quick_check(df, 650, 700, "U", 60, 15000, 25000, "Mid-range Used"),
+  quick_check(df, 650, 720, "U", 36, 10000, 20000, "Short-term Used")
+)
+
+# Remove any NULL results
+segment_results <- segment_results[!sapply(segment_results, is.null)]
+segment_results <- bind_rows(segment_results)
+
+# Display results with nice formatting
+library(knitr)
+library(kableExtra)
+
+segment_results %>%
+  kable(format = "html", 
+        caption = "<b>Table: Profit Optimization Across Segments</b>",
+        align = c("l", "r", "r", "r", "r", "r", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE,
+                position = "left") %>%
+  row_spec(0, bold = TRUE, background = "#2c3e50", color = "white") %>%
+  row_spec(which(segment_results$Segment == "Teaching Segment"), 
+           bold = TRUE, background = "#e8f4f8")
+
+# Summary insights
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("KEY FINDINGS FROM SEGMENT SCAN:\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+overpriced <- sum(segment_results$APR_Gap < 0, na.rm = TRUE)
+cat(" •", overpriced, "out of", nrow(segment_results), 
+    "segments show overpricing (optimal APR < current APR)\n")
+
+avg_improvement <- mean(as.numeric(gsub("%", "", segment_results$Improvement)), na.rm = TRUE)
+cat(" • Average improvement potential:", round(avg_improvement, 1), "%\n")
+
+best_idx <- which.max(as.numeric(gsub("%", "", segment_results$Improvement)))
+cat(" • Biggest opportunity:", segment_results$Segment[best_idx], 
+    "(", segment_results$Improvement[best_idx], "improvement)\n")
+
+# Visualize APR gaps
+if (nrow(segment_results) > 0) {
+  # Create a simple barplot
+  barplot(segment_results$APR_Gap,
+          names.arg = substr(segment_results$Segment, 1, 15),
+          las = 2,
+          col = ifelse(segment_results$APR_Gap < 0, "lightcoral", "lightgreen"),
+          main = "APR Gap by Segment (Optimal - Current)",
+          xlab = "Segment", ylab = "APR Gap (percentage points)",
+          cex.names = 0.8)
+  abline(h = 0, col = "black", lwd = 2)
+  grid()
+}
+```
+
+#This shows how to scale – you might keep one as a teaser for “next steps”.
+# Model with multivariables(Fits and interprets models with Rate + FICO + Amount + Term, and finds optimal APR holding other variables constant.)
+```{r}
+# These are advanced analyses that go beyond the teaching note. 
+# Model with Rate, FICO, Amount, and Term
+model_multiple <- glm(Outcome ~ Rate + FICO + Amount + Term, 
+                      family = binomial(link = "logit"),
+                      data = segment )
+
+summary(model_multiple)
+
+```
+## Interpret the Output
+```{r}
+# Look at coefficients
+coef_summary <- summary(model_multiple)$coefficients
+print(coef_summary)
+
+# Calculate odds ratios
+odds_ratios <- exp(coef(model_multiple))
+print(round(odds_ratios, 3))
+
+```
+
+# example to calculate
+
+```{r}
+# Use your actual model
+model_multiple <- glm(Outcome ~ Rate + FICO + Amount, 
+                      family = binomial(link = "logit"),
+                      data = segment)
+
+# Create typical customer
+typical <- data.frame(
+  Rate = seq(3, 8, by = 0.25),
+  FICO = 702,
+  Amount = 21847
+)
+
+# Predict probabilities
+typical$prob <- predict(model_multiple, newdata = typical, type = "response")
+
+# Calculate profit
+avg_cost <- mean(segment$cost_of_funds, na.rm = TRUE)
+typical$profit_if_accept <- (typical$Rate - avg_cost) * 21847/100 * 5
+typical$expected_profit <- typical$prob * typical$profit_if_accept
+
+# Find optimal
+best <- typical[which.max(typical$expected_profit), ]
+print(paste("Optimal APR:", best$Rate, "%"))
+print(paste("Expected Profit: $", round(best$expected_profit, 2)))
+```
+
+# Interaction check,These show that price sensitivity varies by term, FICO, etc. – supporting the move to individual pricing. Keep if you want to demonstrate the broader value of Nomis’s approach.
+
+```{r}
+# ====================================================
+# INTERACTION TESTS ON FULL DATASET
+# ====================================================
+
+# 1. Rate × Term Interaction (Does price sensitivity vary by loan term?)
+model_term_interaction <- glm(Outcome ~ Rate * Term + FICO + Amount + car_type, 
+                              family = binomial(link = "logit"), 
+                              data = df)
+
+summary(model_term_interaction)
+# Look for: Rate:Term coefficient and p-value
+
+# 2. Rate × FICO Interaction (Does price sensitivity vary by credit score?)
+model_fico_interaction <- glm(Outcome ~ Rate * FICO + Term + Amount + car_type, 
+                              family = binomial(link = "logit"), 
+                              data = df)
+
+summary(model_fico_interaction)
+# Look for: Rate:FICO coefficient and p-value
+
+# 3. Rate × Amount Interaction (Does price sensitivity vary by loan size?)
+model_amount_interaction <- glm(Outcome ~ Rate * Amount + FICO + Term + car_type, 
+                                family = binomial(link = "logit"), 
+                                data = df)
+
+summary(model_amount_interaction)
+# Look for: Rate:Amount coefficient and p-value
+
+# 4. Rate × Car Type Interaction (Does price sensitivity vary by new/used/refi?)
+model_cartype_interaction <- glm(Outcome ~ Rate * car_type + FICO + Term + Amount, 
+                                 family = binomial(link = "logit"), 
+                                 data = df)
+
+summary(model_cartype_interaction)
+# Look for: Rate:car_type coefficients
+
+## What it does: Tests whether price sensitivity varies with term, FICO, amount, or car type.
+
+##Interpretation: All interactions are highly significant (p < 0.001), proving that one APR does not fit all. This justifies moving from segment‑level to individual‑level pricing – the ultimate scalable solution Nomis offers.
+```
+```{r}
+# Extract interaction p-values
+library(knitr)
+
+# Run models
+m_term <- glm(Outcome ~ Rate * Term + FICO + Amount + car_type, 
+              family = binomial, data = df)
+m_fico <- glm(Outcome ~ Rate * FICO + Term + Amount + car_type, 
+              family = binomial, data = df)
+m_amount <- glm(Outcome ~ Rate * Amount + FICO + Term + car_type, 
+                family = binomial, data = df)
+m_cartype <- glm(Outcome ~ Rate * car_type + FICO + Term + Amount, 
+                 family = binomial, data = df)
+
+# Create results table
+interaction_results <- data.frame(
+  Interaction = c("Rate × Term", "Rate × FICO", "Rate × Amount", "Rate × Car Type"),
+  Coefficient = c(
+    coef(m_term)["Rate:Term"],
+    coef(m_fico)["Rate:FICO"],
+    coef(m_amount)["Rate:Amount"],
+    "Multiple coefficients"  # Car type has multiple levels
+  ),
+  P_value = c(
+    summary(m_term)$coefficients["Rate:Term", 4],
+    summary(m_fico)$coefficients["Rate:FICO", 4],
+    summary(m_amount)$coefficients["Rate:Amount", 4],
+    "See below"
+  ),
+  Significant = c(
+    ifelse(summary(m_term)$coefficients["Rate:Term", 4] < 0.05, "YES", "NO"),
+    ifelse(summary(m_fico)$coefficients["Rate:FICO", 4] < 0.05, "YES", "NO"),
+    ifelse(summary(m_amount)$coefficients["Rate:Amount", 4] < 0.05, "YES", "NO"),
+    "Check car_type interactions"
+  )
+)
+
+print(interaction_results)
+
+# For car type, show individual interactions
+cat("\n--- Rate × Car Type Interactions ---\n")
+summary(m_cartype)$coefficients[grep("Rate:car_type", rownames(summary(m_cartype)$coefficients)), ]
+```
+
+
+
