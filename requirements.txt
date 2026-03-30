@@ -1,0 +1,16 @@
+# Data Manipulation & Cleaning
+tidyverse      # Includes ggplot2, dplyr, tidyr, readr
+data.table     # Fast processing for large datasets
+
+# Financial & Statistical Modeling
+FinCal         # Time Value of Money and NPV calculations
+caret          # Machine learning and predictive modeling
+glmnet         # For Lasso and Ridge regression (price elasticity)
+
+# Optimization
+ompr           # Model-based optimization in R
+ROI            # R Optimization Infrastructure
+
+# Visualization & Reporting
+hrbrthemes     # Professional typography for charts
+shiny          # If you built an interactive pricing dashboard
